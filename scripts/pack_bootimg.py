@@ -33,17 +33,20 @@ SECOND_ADDR = 0x40F00000
 TAGS_ADDR = 0x47880000
 DTB_ADDR = 0x4D800000  # MTK default dtb load address
 OS_VERSION = 0x14000149
-CMDLINE = "bootopt=64S3,32N2,64N2 buildvariant=user"
-# NO panic= here: a hung kernel keeps the failed boot's LK log intact in
-# expdb (each subsequent boot overwrites it).  Recover = power-cycle; the
-# lk partition used with this flow boots Android normally.
-# ramoops.* params register the pstore backend at postcore_initcall,
-# earlier than the DT-node probe, so mid-boot panics get logged too.
-EXTRA_CMDLINE = ("console=ttyS0,921600n8 earlycon ignore_loglevel "
-                 "ramoops.mem_address=0x47c90000 ramoops.mem_size=0xe0000 "
-                 "ramoops.console_size=0x40000 ramoops.pmsg_size=0x10000 "
-                 "ramoops.record_size=0x1000 ramoops.ftrace_size=0x1000 "
-                 "ramoops.ecc=0")
+# Stock kernel segment layout (verified against the original boot.img):
+#   kernel segment = gzip stream (Image, 25.3MB) + FDT appended tightly,
+#   header v2, dtb_size/dtb_addr fields = 0, no padding between gz and dtb.
+# LK decompresses the gz stream and scans the tail of the output for the
+# FDT magic.  We replicate this exactly: mainline Image.gz + the STOCK
+# vendor kernel dtb (which LK's odm_mdtbo logic accepts for the dtbo
+# overlay).  Our own DTB caused an ASSERT at odm_mdtbo.c:285 because LK
+# could not overlay the dtbo partition onto it.
+CMDLINE = ("bootopt=64S3,32N2,64N2 buildvariant=user "
+           "console=ttyS0,921600n8 earlycon ignore_loglevel "
+           "ramoops.mem_address=0x47c90000 ramoops.mem_size=0xe0000 "
+           "ramoops.console_size=0x40000 ramoops.pmsg_size=0x10000 "
+           "ramoops.record_size=0x1000 ramoops.ftrace_size=0x1000 "
+           "ramoops.ecc=0")
 
 
 def align(x, n=PAGE):
@@ -72,13 +75,19 @@ def parse_info(path):
 
 
 def pack(kernel, dtb=None, ramdisk=None):
+    """dtb, if given, is appended to the gz stream inside the kernel
+    segment (stock gz-dtb layout); the v2 dtb section stays empty."""
+    blob = kernel
+    if dtb is not None:
+        blob = kernel + dtb
+
     hdr = bytearray(1684)  # v2 header size
     hdr[0:8] = b"ANDROID!"
 
     def put(off, data):
         hdr[off:off + len(data)] = data
 
-    put(8, p32(len(kernel)))
+    put(8, p32(len(blob)))
     put(12, p32(KERNEL_ADDR))
     put(16, p32(len(ramdisk)))
     put(20, p32(RAMDISK_ADDR))
@@ -92,28 +101,20 @@ def pack(kernel, dtb=None, ramdisk=None):
     put(48, name)
     cmd = CMDLINE.encode()[:511]
     put(64, cmd)
-    put(608, EXTRA_CMDLINE.encode()[:1023])
 
     # sha1 over (kernel + ramdisk + second) sizes+contents
     h = hashlib.sha1()
-    h.update(p32(len(kernel)) + kernel)
+    h.update(p32(len(blob)) + blob)
     h.update(p32(len(ramdisk)) + ramdisk)
     h.update(p32(0))
     put(576, h.digest())
 
-    if dtb is not None:
-        put(1676, p32(len(dtb)))
-        put(1680, p32(DTB_ADDR))
-
     out = bytearray(hdr)
     out += b"\x00" * (align(len(hdr)) - len(hdr))
-    out += kernel
-    out += b"\x00" * (align(len(kernel)) - len(kernel))
+    out += blob
+    out += b"\x00" * (align(len(blob)) - len(blob))
     out += ramdisk
     out += b"\x00" * (align(len(ramdisk)) - len(ramdisk))
-    if dtb is not None:
-        out += dtb
-        out += b"\x00" * (align(len(dtb)) - len(dtb))
     return bytes(out)
 
 
