@@ -983,10 +983,6 @@ static phys_addr_t xmark_off = 0x40;
 static void __init xmark(const char *tag)
 {
 	char *p = phys_to_virt(0x47c80000ULL + xmark_off);
-	/* volatile-qualified copies: prevents clang from constant-folding the
-	 * address into an immediate/symbol operand for "dc cvac", which
-	 * triggers "specified dc op requires a register" */
-	char *volatile vp = p;
 	int i;
 
 	for (i = 0; i < 15 && tag[i]; i++)
@@ -994,9 +990,10 @@ static void __init xmark(const char *tag)
 	for (; i < 15; i++)
 		p[i] = ' ';
 	p[15] = '\n';
-	/* clean the 64-byte line holding the 16-byte marker */
-	asm volatile("dc cvac %0" :: "r"(vp) : "memory");
-	asm volatile("dsb sy" ::: "memory");
+	/* clean the cache line holding the marker to PoC so it survives the
+	 * watchdog reset.  Use the arm64 asm helper instead of inline asm:
+	 * clang 18 errors out on inline "dc cvac" operands here. */
+	dcache_clean_poc((unsigned long)p, (unsigned long)(p + 64));
 	xmark_off += 16;
 }
 
