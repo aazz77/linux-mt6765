@@ -19,12 +19,17 @@ jobs:
           sudo apt-get install -y clang llvm lld flex bison bc libssl-dev \
             libncurses-dev python3 gzip cpio
 
-      - name: Configure (defconfig + mt6765 fragment)
+      - name: Configure (defconfig + virt + mt6765 fragments)
         run: |
           make ARCH=arm64 LLVM=1 defconfig
+          # virt.config disables every non-Mediatek ARM platform and heavy
+          # subsystems: stock LK's decompress buffer rejects raw Images
+          # larger than the stock kernel (~25.3MB); plain defconfig builds
+          # a 37MB Image -> "decompress kernel image fail".
+          ./scripts/kconfig/merge_config.sh -m .config arch/arm64/configs/virt.config
           ./scripts/kconfig/merge_config.sh -m .config arch/arm64/configs/mt6765.config
           make ARCH=arm64 LLVM=1 olddefconfig
-          grep -E "CONFIG_ARCH_MEDIATEK|CONFIG_SERIAL_8250_MT6577|CONFIG_MMC_MTK|CONFIG_MTK_TIMER|CONFIG_COMMON_CLK_MT6765|CONFIG_REGULATOR_MT6357" .config || true
+          grep -E "CONFIG_ARCH_MEDIATEK|CONFIG_SERIAL_8250_MT6577|CONFIG_MMC_MTK|CONFIG_MTK_TIMER|CONFIG_COMMON_CLK_MT6765|CONFIG_REGULATOR_MT6357|CONFIG_DRM|CONFIG_SOUND" .config || true
 
       - name: Build kernel + dtbs
         run: |
