@@ -34,10 +34,16 @@ TAGS_ADDR = 0x47880000
 DTB_ADDR = 0x4D800000  # MTK default dtb load address
 OS_VERSION = 0x14000149
 CMDLINE = "bootopt=64S3,32N2,64N2 buildvariant=user"
-# panic=5: reboot into Android after a panic so the ramoops log written
-# before the crash survives and can be read from /sys/fs/pstore.
-# ignore_loglevel: ramoops console captures every printk during bring-up.
-EXTRA_CMDLINE = "console=ttyS0,921600n8 earlycon panic=5 ignore_loglevel"
+# NO panic= here: a hung kernel keeps the failed boot's LK log intact in
+# expdb (each subsequent boot overwrites it).  Recover = power-cycle; the
+# lk partition used with this flow boots Android normally.
+# ramoops.* params register the pstore backend at postcore_initcall,
+# earlier than the DT-node probe, so mid-boot panics get logged too.
+EXTRA_CMDLINE = ("console=ttyS0,921600n8 earlycon ignore_loglevel "
+                 "ramoops.mem_address=0x47c90000 ramoops.mem_size=0xe0000 "
+                 "ramoops.console_size=0x40000 ramoops.pmsg_size=0x10000 "
+                 "ramoops.record_size=0x1000 ramoops.ftrace_size=0x1000 "
+                 "ramoops.ecc=0")
 
 
 def align(x, n=PAGE):

@@ -111,6 +111,7 @@
 
 #include <asm/io.h>
 #include <asm/setup.h>
+#include <asm/memory.h>
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
 
@@ -968,6 +969,33 @@ static void __init print_kernel_cmdline(const char *cmdline)
 		pr_notice("%s%s\n", KERNEL_CMDLINE_PREFIX, cmdline);
 }
 
+/*
+ * X606F bring-up: write stage markers into the vendor ram_console buffer
+ * (physical 0x47c80000, filled by LK, exported by the stock Android kernel
+ * as /proc/last_kmsg).  With no UART and no early pstore, this is the only
+ * channel that survives a watchdog reset.  Markers are appended at offset
+ * 0x40 (header at 0..0x3f untouched), each 16 bytes wide, dcache-cleaned to
+ * PoC so they survive the reset.  Usable only AFTER setup_arch() because
+ * phys_to_virt needs the linear map, so there is no marker at start_kernel
+ * entry itself.
+ */
+static phys_addr_t xmark_off = 0x40;
+static void __init xmark(const char *tag)
+{
+	char *p = phys_to_virt(0x47c80000ULL + xmark_off);
+	int i;
+
+	for (i = 0; i < 15 && tag[i]; i++)
+		p[i] = tag[i];
+	for (; i < 15; i++)
+		p[i] = ' ';
+	p[15] = '\n';
+	/* clean the 64-byte line(s) holding the 16-byte marker */
+	asm volatile("dc cvac %0" :: "r"(p) : "memory");
+	asm volatile("dsb sy" ::: "memory");
+	xmark_off += 16;
+}
+
 asmlinkage __visible __init __no_sanitize_address __noreturn __no_stack_protector
 void start_kernel(void)
 {
@@ -992,6 +1020,7 @@ void start_kernel(void)
 	page_address_init();
 	pr_notice("%s", linux_banner);
 	setup_arch(&command_line);
+	xmark("a_setup_arch");
 	mm_core_init_early();
 	/* Static keys and static calls are needed by LSMs */
 	jump_label_init();
@@ -1077,6 +1106,7 @@ void start_kernel(void)
 	/* init some links before init_ISA_irqs() */
 	early_irq_init();
 	init_IRQ();
+	xmark("b_init_IRQ");
 	tick_init();
 	rcu_init_nohz();
 	timers_init();
@@ -1086,6 +1116,7 @@ void start_kernel(void)
 	vdso_setup_data_pages();
 	timekeeping_init();
 	time_init();
+	xmark("c_time_init");
 
 	/* This must be after timekeeping is initialized */
 	random_init();
@@ -1139,6 +1170,7 @@ void start_kernel(void)
 		late_time_init();
 	sched_clock_init();
 	calibrate_delay();
+	xmark("d_calibrate");
 
 	arch_cpu_finalize_init();
 
@@ -1172,6 +1204,7 @@ void start_kernel(void)
 	kcsan_init();
 
 	/* Do the rest non-__init'ed, we're now alive */
+	xmark("e_pre_rest_init");
 	rest_init();
 
 	/*
@@ -1442,6 +1475,7 @@ static void __init do_basic_setup(void)
 	driver_init();
 	init_irq_proc();
 	do_ctors();
+	xmark("f_pre_initcalls");
 	do_initcalls();
 }
 
