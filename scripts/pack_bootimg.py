@@ -34,7 +34,10 @@ TAGS_ADDR = 0x47880000
 DTB_ADDR = 0x4D800000  # MTK default dtb load address
 OS_VERSION = 0x14000149
 CMDLINE = "bootopt=64S3,32N2,64N2 buildvariant=user"
-EXTRA_CMDLINE = "console=ttyS0,921600n8 earlycon"
+# panic=5: reboot into Android after a panic so the ramoops log written
+# before the crash survives and can be read from /sys/fs/pstore.
+# ignore_loglevel: ramoops console captures every printk during bring-up.
+EXTRA_CMDLINE = "console=ttyS0,921600n8 earlycon panic=5 ignore_loglevel"
 
 
 def align(x, n=PAGE):

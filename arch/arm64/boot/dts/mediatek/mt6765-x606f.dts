@@ -67,6 +67,32 @@
 	 * (androidboot.hw_id=0).  Board variants select the touch IC and
 	 * panel via the same mechanism; this DTS describes hw_id 0.
 	 */
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/*
+		 * pstore/ramoops carved over the same physical region the
+		 * stock Android 4.9 kernel uses (verified via
+		 * /sys/module/ramoops/parameters on the rooted tablet).
+		 * Keep the zone layout IDENTICAL so that after a mainline
+		 * kernel panic + reboot, the stock Android kernel can parse
+		 * our console log from /sys/fs/pstore/console-ramoops:
+		 *   mem_address=0x47c90000 mem_size=0xe0000
+		 *   console_size=0x40000 pmsg_size=0x10000
+		 *   record_size=0x1000  ftrace_size=0x1000  ecc=0
+		 */
+		ramoops@47c90000 {
+			compatible = "ramoops";
+			reg = <0 0x47c90000 0 0xe0000>;
+			console-size = <0x40000>;
+			pmsg-size = <0x10000>;
+			record-size = <0x1000>;
+			ftrace-size = <0x1000>;
+		};
+	};
 };
 
 &uart0 {
