@@ -1,0 +1,58 @@
+name: build-mt6765-kernel
+
+on:
+  push:
+    branches: [mt6765-mainline, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld flex bison bc libssl-dev \
+            libncurses-dev python3 gzip cpio
+
+      - name: Configure (defconfig + mt6765 fragment)
+        run: |
+          make ARCH=arm64 LLVM=1 defconfig
+          ./scripts/kconfig/merge_config.sh -m .config arch/arm64/configs/mt6765.config
+          make ARCH=arm64 LLVM=1 olddefconfig
+          grep -E "CONFIG_ARCH_MEDIATEK|CONFIG_SERIAL_8250_MT6577|CONFIG_MMC_MTK|CONFIG_MTK_TIMER|CONFIG_COMMON_CLK_MT6765|CONFIG_REGULATOR_MT6357" .config || true
+
+      - name: Build kernel + dtbs
+        run: |
+          make ARCH=arm64 LLVM=1 -j$(nproc) Image.gz dtbs
+
+      - name: Pack boot images
+        run: |
+          mkdir -p out
+          cp arch/arm64/boot/Image.gz out/
+          cp arch/arm64/boot/dts/mediatek/mt6765-x606f.dtb out/
+          # Variant A: fastboot boot (zero-flash test), DTB in boot image v2 section
+          python3 scripts/pack_bootimg.py \
+            --kernel arch/arm64/boot/Image.gz \
+            --dtb arch/arm64/boot/dts/mediatek/mt6765-x606f.dtb \
+            -o out/boot-mainline.img
+          # Variant B: lk partition with embedded base DTB swapped (flash lk)
+          python3 scripts/swap_lk_dtb.py board/x606f/lk.img \
+            arch/arm64/boot/dts/mediatek/mt6765-x606f.dtb \
+            -o out/lk-mainline.img
+          ls -la out/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: x606f-mainline-${{ github.run_number }}
+          path: |
+            out/Image.gz
+            out/mt6765-x606f.dtb
+            out/boot-mainline.img
+            out/lk-mainline.img
+            .config

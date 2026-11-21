@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * MT6357 PMIC template for MT6765 boards
+ *
+ * Included from a board DTS when the PMIC interrupt line is known, e.g.:
+ *
+ *     #include "mt6765-pmic.dtsi"
+ *
+ * and then optionally:
+ *
+ *     &mmc0 {
+ *             vmmc-supply = <&mt6357_vemc_reg>;
+ *             vqmmc-supply = <&mt6357_vio18_reg>;
+ *     };
+ *
+ * IMPORTANT
+ * ---------
+ * The MT6357 INTB pin is routed to EINT144 on this board, as reported by the
+ * PMIC node of the stock device tree (extracted from the dtbo blob that
+ * follows the ramdisk inside the stock boot.img).  If you port this to a
+ * different MT6765 handset, dump the stock DT and confirm the number:
+ *
+ *     adb shell cat /proc/device-tree/pwrap@1000d000/main_pmic/interrupts
+ *
+ * A wrong EINT number will not damage the hardware, but the PMIC (and thus
+ * the regulators) will fail to probe, so double check it on new boards.
+ *
+ * Regulators that are not modelled here keep whatever state the bootloader
+ * left them in, which is usually "on" for the rails used by eMMC/DRAM.
+ */
+
+#include <dt-bindings/interrupt-controller/irq.h>
+
+&pwrap {
+	pmic: pmic {
+		compatible = "mediatek,mt6357";
+
+		interrupt-parent = <&pio>;
+		interrupts = <144 IRQ_TYPE_LEVEL_HIGH>;	/* EINT144, from stock dtbo */
+		interrupt-controller;
+		#interrupt-cells = <2>;
+
+		mediatek,micbias0-microvolt = <1700000>;
+		mediatek,micbias1-microvolt = <1700000>;
+
+		regulators {
+			mt6357_vproc_reg: buck-vproc {
+				regulator-name = "vproc";
+				regulator-min-microvolt = <518750>;
+				regulator-max-microvolt = <1312500>;
+				regulator-ramp-delay = <6250>;
+				regulator-enable-ramp-delay = <220>;
+				regulator-always-on;
+			};
+
+			mt6357_vcore_reg: buck-vcore {
+				regulator-name = "vcore";
+				regulator-min-microvolt = <800000>;
+				regulator-max-microvolt = <1100000>;
+				regulator-ramp-delay = <6250>;
+				regulator-enable-ramp-delay = <220>;
+				regulator-always-on;
+			};
+
+			mt6357_vs1_reg: buck-vs1 {
+				regulator-name = "vs1";
+				regulator-min-microvolt = <1200000>;
+				regulator-max-microvolt = <2000000>;
+				regulator-ramp-delay = <6250>;
+				regulator-enable-ramp-delay = <220>;
+			};
+
+			mt6357_vio18_reg: ldo-vio18 {
+				regulator-name = "vio18";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
+				regulator-enable-ramp-delay = <264>;
+				regulator-always-on;
+			};
+
+			mt6357_vemc_reg: ldo-vemc {
+				regulator-name = "vemc";
+				regulator-min-microvolt = <2900000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-enable-ramp-delay = <264>;
+				regulator-always-on;
+			};
+
+			mt6357_vmc_reg: ldo-vmc {
+				regulator-name = "vmc";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-enable-ramp-delay = <264>;
+			};
+
+			mt6357_vmch_reg: ldo-vmch {
+				regulator-name = "vmch";
+				regulator-min-microvolt = <2900000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-enable-ramp-delay = <264>;
+			};
+
+			mt6357_vusb33_reg: ldo-vusb33 {
+				regulator-name = "vusb33";
+				regulator-min-microvolt = <3000000>;
+				regulator-max-microvolt = <3100000>;
+				regulator-enable-ramp-delay = <264>;
+			};
+		};
+
+		rtc {
+			compatible = "mediatek,mt6357-rtc";
+		};
+
+		keys {
+			compatible = "mediatek,mt6357-keys";
+		};
+	};
+};

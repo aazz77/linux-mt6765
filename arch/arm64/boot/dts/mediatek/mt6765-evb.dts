@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * MediaTek MT6765 (Helio P35) reference board for mainline bring-up.
+ *
+ * The memory map, the PMIC wiring and the eMMC setup below were taken from
+ * the device tree that ships inside the stock boot.img (the dtbo blob that
+ * follows the ramdisk), so this file describes real MT6765 hardware rather
+ * than an imaginary EVB.
+ *
+ * What it gives you:
+ *   - serial console on UART0 (the one LK already uses, 921600 8n1)
+ *   - eMMC on MSDC0 with the MT6357 VEMC rail
+ *
+ * Still missing on purpose (no upstream driver or not yet mapped):
+ *   display, touch, camera, GPU, USB, WiFi/BT, thermal, cpufreq.
+ */
+
+/dts-v1/;
+
+#include "mt6765.dtsi"
+#include "mt6765-pmic.dtsi"
+
+/ {
+	model = "MediaTek MT6765 board";
+	compatible = "mediatek,mt6765-evb", "mediatek,mt6765";
+
+	aliases {
+		serial0 = &uart0;
+	};
+
+	chosen {
+		stdout-path = "serial0:921600n8";
+		/*
+		 * LK overwrites /chosen/bootargs with the cmdline from the boot
+		 * image header, so the console really comes from the packed
+		 * boot.img (see build.sh).  Keeping it here as well makes the
+		 * DT usable with a bootloader that honours it.
+		 */
+		bootargs = "console=ttyS0,921600n8 earlycon";
+	};
+
+	/*
+	 * LK patches this node with the real DRAM size before jumping to the
+	 * kernel; 0x20000000 is what the stock DT advertises.
+	 */
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0 0x40000000 0 0x20000000>;
+	};
+};
+
+&uart0 {
+	status = "okay";
+};
+
+&mmc0 {
+	status = "okay";
+
+	bus-width = <8>;
+	max-frequency = <200000000>;
+	non-removable;
+	cap-mmc-highspeed;
+	mmc-ddr-1_8v;
+	mmc-hs200-1_8v;
+	mmc-hs400-1_8v;
+	no-sd;
+	no-sdio;
+
+	vmmc-supply = <&mt6357_vemc_reg>;
+};

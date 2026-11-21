@@ -1,0 +1,125 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Lenovo Tab M10 FHD Plus 2nd Gen (Xiaoxin Pad, TB-X606F, achilles6_prc_wifi)
+ *
+ * Board data sources:
+ *   - stock LK DTB (extracted from the lk partition) + stock dtbo overlay
+ *   - runtime /proc/device-tree of the rooted tablet (Android 10, 4.9.190)
+ *
+ * SoC bring-up hardware map (verified on device, i2c bus -> clients):
+ *   i2c0  touch: focaltech@0x38 + himax@0x48 (hw_id dependent)
+ *   i2c2  camera_main@0x1a, camera_main_af@0x0c, eeprom@0x50
+ *   i2c3  sx9311@0x28, speaker_amp@0x34, slave_charger@0x4b, nfc@0x08,
+ *         ext_buck_lp4(x) DRAM rails
+ *   i2c4  camera_sub@0x2e, eeprom@0x52
+ *   i2c5  charger ti,bq25601@0x6b, usb_type_c@0x4e, wusb3801x@0x60,
+ *         fusb301@0x21, i2c_lcd_bias@0x3e, backlight sgm37604a@0x36,
+ *         ac107@0x37, subpmic@0x34
+ *   i2c6  fuel gauge mm8013@0x55, LED aw2016@0x64, camera_main_two@0x2d
+ *
+ * Display: BOE NT51021 1920x1200 DSI panel (or AUO NT35695B variant),
+ *          backlight via sgm37604a, lcd-bias rails on i2c5@0x3e.
+ *          NOT yet wired here: mainline display pipeline (mmsys/ovl/dsi)
+ *          has no driver binding in mt6765.dtsi yet.
+ *
+ * First bring-up goal: UART0 console + eMMC (MSDC0) + microSD (MSDC1).
+ *
+ * Boot test procedure (no flashing):
+ *   fastboot boot out/arch/arm64/boot/Image.gz-dtb  (or prepared boot.img)
+ */
+
+/dts-v1/;
+
+#include "mt6765.dtsi"
+#include "mt6765-pmic.dtsi"
+
+/ {
+	model = "Lenovo Tab M10 FHD Plus (TB-X606F)";
+	compatible = "lenovo,tb-x606f", "mediatek,mt6765";
+
+	aliases {
+		serial0 = &uart0;
+		mmc0 = &mmc0;
+		mmc1 = &mmc1;
+	};
+
+	chosen {
+		/*
+		 * LK overwrites /chosen/bootargs with the boot.img cmdline
+		 * (console=tty0 console=ttyS0,921600n1 ...), so the console
+		 * works either way; this is the fallback.
+		 */
+		stdout-path = "serial0:921600n8";
+		bootargs = "console=ttyS0,921600n8 earlycon";
+	};
+
+	/*
+	 * 4GB LPDDR4X starting at 0x40000000.  LK patches the size before
+	 * boot; keep it accurate here for bootloaders that do not.
+	 */
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0 0x40000000 1 0x00000000>;
+	};
+
+	/*
+	 * HW-ID: the PRC (this) board carries hw_id=0 per stock cmdline
+	 * (androidboot.hw_id=0).  Board variants select the touch IC and
+	 * panel via the same mechanism; this DTS describes hw_id 0.
+	 */
+};
+
+&uart0 {
+	status = "okay";
+};
+
+/* eMMC on MSDC0 (128GB, boot device per stock cmdline boot_devices) */
+&mmc0 {
+	status = "okay";
+
+	bus-width = <8>;
+	max-frequency = <200000000>;
+	non-removable;
+	cap-mmc-highspeed;
+	mmc-ddr-1_8v;
+	mmc-hs200-1_8v;
+	mmc-hs400-1_8v;
+	no-sd;
+	no-sdio;
+
+	vmmc-supply = <&mt6357_vemc_reg>;
+	vqmmc-supply = <&mt6357_vio18_reg>;
+};
+
+/* microSD slot on MSDC1 (stock DT has msdc1_ins pin for detection) */
+&mmc1 {
+	status = "okay";
+
+	bus-width = <4>;
+	max-frequency = <50000000>;
+	cap-sd-highspeed;
+	broken-cd;	/* proper cd pin wiring pending pinctrl bring-up */
+	no-mmc;
+	no-sdio;
+
+	vmmc-supply = <&mt6357_vmch_reg>;
+	vqmmc-supply = <&mt6357_vmc_reg>;
+};
+
+/*
+ * NOTE: PMIC (MT6357) comes from mt6765-pmic.dtsi with INTB on EINT144,
+ * which matches the stock dtbo of this device family.  If the PMIC fails
+ * to probe on real hardware, re-check the EINT line before anything else:
+ *
+ *   adb shell su -c "cat /proc/device-tree/pwrap@1000d000/main_pmic/interrupts"
+ *
+ * (the vendor tree models it as /mt-pmic instead; upstream mt6765-pwrap
+ * instantiates the PMIC as a pwrap child, hence the template).
+ *
+ * Not yet described (needs upstream driver work first):
+ *   - display pipeline (mmsys/ovl/rdma/dsi/dsi-phy + panel boe,nt51021)
+ *   - USB (MUSB + MT6765 USB PHY + wusb3801x type-c)
+ *   - connsys (MT6631 WiFi/BT/GPS/FM)
+ *   - battery: bq25601 charger + mm8013 gauge (i2c5/i2c6)
+ *   - thermal, cpufreq, dvfsrc, audio
+ */
