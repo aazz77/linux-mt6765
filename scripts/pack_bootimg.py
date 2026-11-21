@@ -74,9 +74,37 @@ def parse_info(path):
         print(f"  dtb={ds}@{da:#x}")
 
 
+def make_dt_table(fdt, page_size=PAGE):
+    """Build an Android DT table (mkdtimg format) wrapping a single FDT.
+
+    Reverse-engineered from the stock boot.img: the LK on this device scans
+    the boot image after the ramdisk for a dt_table section (magic
+    d7b7ab1e).  If it is missing, LK prints "can't find v2 dtb", computes
+    kernel real kernel_sz=0 and the gunzip fails instantly.  The stock
+    header's own dtb_size/dtb_addr fields are 0 -- the section is found by
+    scanning, not by the header fields.
+    """
+    DT_TABLE_MAGIC = 0x1EABB7D7  # little-endian bytes d7 b7 ab 1e
+    hdr = struct.pack("<8I", DT_TABLE_MAGIC,
+                      64 + len(fdt),   # total_size
+                      32,              # header_size
+                      32,              # entry_size
+                      1,               # entry_count
+                      32,              # entries_offset
+                      page_size,
+                      0)               # version
+    entry = struct.pack("<8I", len(fdt), 64, 0, 0, 0, 0, 0, 0)
+    return hdr + entry + fdt
+
+
 def pack(kernel, dtb=None, ramdisk=None):
-    """dtb, if given, is appended to the gz stream inside the kernel
-    segment (stock gz-dtb layout); the v2 dtb section stays empty."""
+    """Stock layout replication:
+    - kernel segment = gz stream + FDT appended tightly (stock gz-dtb),
+    - ramdisk follows page-aligned,
+    - a dt_table (mkdtimg) section wrapping the same FDT follows the
+      ramdisk, page-aligned -- LK finds it by scanning; without it the
+      kernel size computes as 0 and gunzip fails instantly.
+    """
     blob = kernel
     if dtb is not None:
         blob = kernel + dtb
@@ -115,6 +143,10 @@ def pack(kernel, dtb=None, ramdisk=None):
     out += b"\x00" * (align(len(blob)) - len(blob))
     out += ramdisk
     out += b"\x00" * (align(len(ramdisk)) - len(ramdisk))
+    if dtb is not None:
+        table = make_dt_table(dtb)
+        out += table
+        out += b"\x00" * (align(len(table)) - len(table))
     return bytes(out)
 
 
