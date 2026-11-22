@@ -17,7 +17,37 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang llvm lld flex bison bc libssl-dev \
-            libncurses-dev python3 gzip cpio
+            libncurses-dev python3 gzip cpio ccache
+
+      # clang resolves as "ccache clang" through a shim dir, so every
+      # kbuild invocation (CC and HOSTCC) is cached without touching the
+      # Makefile.  Cache key tracks config + toolchain fingerprint: a
+      # config change only invalidates the affected objects, not the
+      # whole tree.
+      - name: Restore ccache
+        id: ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          # Unique key per run so the post-step always saves the grown
+          # cache; restore-keys prefix pulls the most recent one back.
+          key: ccache-${{ runner.os }}-clang-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ runner.os }}-clang-
+
+      - name: Setup ccache shims
+        run: |
+          mkdir -p /tmp/ccache-shim
+          for tool in clang clang++; do
+            ln -sf "$(command -v ccache)" "/tmp/ccache-shim/$tool"
+          done
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_MAXSIZE=2G" >> "$GITHUB_ENV"
+          echo "CCACHE_SLOPPINESS=time_macros" >> "$GITHUB_ENV"
+          echo "PATH=/tmp/ccache-shim:$PATH" >> "$GITHUB_ENV"
+          ccache -z
+          echo "cache hit: ${{ steps.ccache.outputs.cache-hit }}"
+          ccache -s | head -20
 
       - name: Configure (defconfig + virt + mt6765 fragments)
         run: |
@@ -34,6 +64,8 @@ jobs:
       - name: Build kernel + dtbs
         run: |
           make ARCH=arm64 LLVM=1 -j$(nproc) Image.gz dtbs
+          echo "=== ccache stats ==="
+          ccache -s
 
       - name: Pack boot images
         run: |
