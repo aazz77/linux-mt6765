@@ -56,6 +56,13 @@
 #define WDT_SWRST		0x14
 #define WDT_SWRST_KEY		0x1209
 
+/* MT6765 debug: post-reset breadcrumbs. WDT_NONRST_REG2 survives a WDT reset
+ * and the vendor (TWRP) kernel dumps it at boot, giving us a side channel to
+ * see how far the mainline driver got before the dog bit. */
+#define WDT_NONRST_REG2		0x1c
+#define X606F_WDT_MAGIC_PROBE	0x676f6f64U /* "good" - probe entered */
+#define X606F_WDT_MAGIC_REG	0x72656764U /* "regd" - core registered */
+
 #define WDT_SWSYSRST		0x18U
 #define WDT_SWSYS_RST_KEY	0x88000000
 
@@ -412,20 +419,37 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 	if (IS_ERR(mtk_wdt->wdt_base))
 		return PTR_ERR(mtk_wdt->wdt_base);
 
-	irq = platform_get_irq_optional(pdev, 0);
-	if (irq > 0) {
-		err = devm_request_irq(&pdev->dev, irq, mtk_wdt_isr, 0, "wdt_bark",
-				       &mtk_wdt->wdt_dev);
-		if (err)
-			return err;
+	/* breadcrumb: driver reached ioremap (NONRST_REG2 survives WDT reset) */
+	writel(X606F_WDT_MAGIC_PROBE, mtk_wdt->wdt_base + WDT_NONRST_REG2);
 
-		mtk_wdt->wdt_dev.info = &mtk_wdt_pt_info;
-		mtk_wdt->wdt_dev.pretimeout = WDT_MAX_TIMEOUT / 2;
-	} else {
-		if (irq == -EPROBE_DEFER)
-			return -EPROBE_DEFER;
-
+	/*
+	 * MT6765: the vendor DTB declares a toprgu IRQ routed through the
+	 * mediatek,mt6577-sysirq -> GIC chain. In the mainline boot that chain
+	 * may not resolve, and devm_request_irq() failing used to abort probe
+	 * entirely -- leaving the bootloader-started dog unfed and rebooting
+	 * every ~33s. We do not need the bark/pretimeout IRQ: watchdog core
+	 * feeds a WDOG_HW_RUNNING device via its own hrtimer. So for this SoC
+	 * deliberately skip the IRQ and take the plain (non-pretimeout) path.
+	 */
+	if (of_device_is_compatible(dev->of_node, "mediatek,mt6765-toprgu")) {
+		irq = 0;
 		mtk_wdt->wdt_dev.info = &mtk_wdt_info;
+	} else {
+		irq = platform_get_irq_optional(pdev, 0);
+		if (irq > 0) {
+			err = devm_request_irq(&pdev->dev, irq, mtk_wdt_isr, 0,
+					       "wdt_bark", &mtk_wdt->wdt_dev);
+			if (err)
+				return err;
+
+			mtk_wdt->wdt_dev.info = &mtk_wdt_pt_info;
+			mtk_wdt->wdt_dev.pretimeout = WDT_MAX_TIMEOUT / 2;
+		} else {
+			if (irq == -EPROBE_DEFER)
+				return -EPROBE_DEFER;
+
+			mtk_wdt->wdt_dev.info = &mtk_wdt_info;
+		}
 	}
 
 	mtk_wdt->wdt_dev.ops = &mtk_wdt_ops;
@@ -446,6 +470,9 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 	err = devm_watchdog_register_device(dev, &mtk_wdt->wdt_dev);
 	if (unlikely(err))
 		return err;
+
+	/* breadcrumb: watchdog core registration succeeded (feeding armed) */
+	writel(X606F_WDT_MAGIC_REG, mtk_wdt->wdt_base + WDT_NONRST_REG2);
 
 	dev_info(dev, "Watchdog enabled (timeout=%d sec, nowayout=%d)\n",
 		 mtk_wdt->wdt_dev.timeout, nowayout);
