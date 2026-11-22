@@ -49,15 +49,18 @@ CMDLINE = ("bootopt=64S3,32N2,64N2 buildvariant=user "
            "ramoops.mem_address=0x47c90000 ramoops.mem_size=0xe0000 "
            "ramoops.console_size=0x40000 ramoops.pmsg_size=0x10000 "
            "ramoops.record_size=0x1000 ramoops.ftrace_size=0x1000 "
-           "ramoops.ecc=0")
+           "ramoops.ecc=0 "
+           # WDT FAR = 0xffff000007c80040 == __phys_to_virt(0x47c80040),
+           # the stock mediatek,ram_console region.  Mainline does not
+           # claim that node, so reserve it explicitly to avoid a write to
+           # an unmapped/bogusly-owned page in the idle task.
+           "memmap=0x10000$0x47c80000")
 
-# The stock vendor DTB's /chosen has no linux,initrd-start/end properties.
-# Modern arm64 mainline only discovers the LK-loaded ramdisk via those DT
-# properties or the "initrd=" early_param.  Tell the kernel explicitly where
-# LK placed the ramdisk (RAMDISK_ADDR) and how big it is, so populate_rootfs()
-# unpacks our cpio and executes /init instead of panicking "Attempted to kill
-# init!".  Size is filled in from the actual ramdisk bytes at pack time.
-INITRD_CMDLINE_FMT = " initrd=0x{:08x},{}"
+# We now use an embedded initramfs (CONFIG_INITRAMFS_SOURCE), so the old
+# "initrd=<phys>,<size>" external-ramdisk hack must NOT be passed: it makes
+# the kernel set initrd_start to the LK ramdisk phys, conflicting with the
+# embedded one and leaving a bogus mapping.  Kept as empty for compatibility.
+INITRD_CMDLINE_FMT = ""
 
 
 def align(x, n=PAGE):
