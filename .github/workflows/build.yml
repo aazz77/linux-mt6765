@@ -74,15 +74,21 @@ jobs:
           cp System.map out/System.map
           cp vmlinux out/vmlinux
           cp arch/arm64/boot/dts/mediatek/mt6765-x606f.dtb out/
+          # Build a minimal mainline initramfs (static busybox + /init shell).
+          # The stock vendor ramdisk's /init can't run under mainline and caused
+          # "Attempted to kill init!" panic.  Our /init mounts proc/sys/dev,
+          # prints breadcrumbs to the ramoops console and idles (never exits).
+          # LK still requires ramdisk_size != 0 (mt_boot.c:1702), satisfied here.
+          python3 scripts/make_initramfs.py \
+            --src board/x606f/initramfs \
+            -o out/ramdisk-mainline.img
           # Stock-layout boot image: kernel segment = mainline Image.gz +
           # stock vendor kernel dtb appended (gz-dtb layout that LK accepts);
           # the mainline DTB caused ASSERT odm_mdtbo.c:285 on overlay.
-          # ramdisk is mandatory: LK ASSERTs at mt_boot.c:1702
-          # (ramdisk_real_sz != 0) when ramdisk_size=0.
           python3 scripts/pack_bootimg.py \
             --kernel arch/arm64/boot/Image.gz \
             --dtb board/x606f/vendor_boot_dtb.dtb \
-            --ramdisk board/x606f/vendor_ramdisk.img \
+            --ramdisk out/ramdisk-mainline.img \
             -o out/boot-mainline.img
           # Variant B: lk partition with embedded base DTB swapped (flash lk)
           python3 scripts/swap_lk_dtb.py board/x606f/lk.img \

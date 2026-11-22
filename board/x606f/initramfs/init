@@ -1,0 +1,48 @@
+#!/bin/sh
+# Minimal mainline initramfs for Lenovo TB-X606F (MT6765) bring-up.
+# Goal: get to a live shell on ttyS0 and leave breadcrumbs in ramoops
+# console so post-mortem via TWRP /sys/fs/pstore works.
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+BB=/bin/busybox
+
+# Full busybox applet set (symlinks), so `sh`, `mount`, `echo` etc. work.
+$BB --install -s /bin 2>/dev/null
+[ -e /bin/sh ] || $BB ln -s /bin/busybox /bin/sh
+
+echo "============================================================"
+echo "X606F MAINLINE INIT: userspace started"
+echo "============================================================"
+
+# Core pseudo-filesystems
+mount -t proc  proc  /proc  2>/dev/null && echo "INIT: proc mounted"
+mount -t sysfs sysfs /sys   2>/dev/null && echo "INIT: sysfs mounted"
+mount -t tmpfs tmpfs /tmp   2>/dev/null
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || mount -t tmpfs tmpfs /dev 2>/dev/null
+[ -e /dev/console ] || $BB mknod /dev/console c 5 1 2>/dev/null
+[ -e /dev/null ]    || $BB mknod /dev/null   c 1 3 2>/dev/null
+[ -e /dev/tty ]     || $BB mknod /dev/tty    c 5 0 2>/dev/null
+echo "INIT: dev ready"
+
+# Leave rich breadcrumbs for the post-mortem pstore dump
+echo "INIT: kernel version: $(cat /proc/version 2>/dev/null)"
+echo "INIT: cpu: $(grep -m1 'Hardware\|model name' /proc/cpuinfo 2>/dev/null)"
+echo "INIT: mem: $(grep -m1 MemTotal /proc/meminfo 2>/dev/null)"
+echo "INIT: cmdline: $(cat /proc/cmdline 2>/dev/null)"
+echo "INIT: block devices:"
+$BB ls -l /sys/class/block/ 2>/dev/null | $BB head -30
+echo "INIT: mmc hosts:"
+$BB ls -l /sys/class/mmc_host/ 2>/dev/null
+echo "INIT: tty devices:"
+$BB ls -l /dev/ttyS* /dev/ttyAMA* /dev/tty* 2>/dev/null | $BB head -20
+echo "INIT: pstore:"
+$BB ls -l /sys/fs/pstore/ 2>/dev/null
+echo "INIT: done probing, spawning shell on console"
+
+# Never let PID 1 exit (else "Attempted to kill init!" panic).
+# Give a shell on ttyS0; if it exits, idle forever.
+while true; do
+    $BB sh -i 2>/dev/null || $BB sh 2>/dev/null
+    echo "INIT: shell exited, respawning in 5s..."
+    $BB sleep 5
+done
