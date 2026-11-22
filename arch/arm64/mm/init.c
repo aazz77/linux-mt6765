@@ -391,20 +391,32 @@ void __init mem_init(void)
 
 void free_initmem(void)
 {
-	void *lm_init_begin = lm_alias(__init_begin);
-	void *lm_init_end = lm_alias(__init_end);
-
-	WARN_ON(!IS_ALIGNED((unsigned long)lm_init_begin, PAGE_SIZE));
-	WARN_ON(!IS_ALIGNED((unsigned long)lm_init_end, PAGE_SIZE));
-
-	free_reserved_area(lm_init_begin, lm_init_end,
-			   POISON_FREE_INITMEM, "unused kernel");
 	/*
-	 * Unmap the __init region but leave the VM area in place. This
-	 * prevents the region from being reused for kernel modules, which
-	 * is not supported by kallsyms.
+	 * x606f (bring-up only): do NOT free / vunmap the init region.
+	 *
+	 * vmlinux.lds.S places .exit.text between __init_begin and __init_end,
+	 * so the stock code below poisons and unmaps built-in drivers' __exit
+	 * functions together with __init code.  On this board an idle-task
+	 * callback jumps into the (now unmapped) scmi_mailbox_driver_exit and
+	 * raises a level-3 translation fault (ESR 0x96000047), which ends in
+	 * "Attempted to kill the idle task!".
+	 *
+	 * Keeping ~0.9 MB of init memory mapped is harmless on a 4 GB tablet
+	 * and turns any such stray jump into a harmless call instead of a
+	 * fatal fault.  Re-enable the free_reserved_area()/vunmap_range() below
+	 * once the offesting driver is fixed.
 	 */
-	vunmap_range((u64)__init_begin, (u64)__init_end);
+	if (0) {
+		void *lm_init_begin = lm_alias(__init_begin);
+		void *lm_init_end = lm_alias(__init_end);
+
+		WARN_ON(!IS_ALIGNED((unsigned long)lm_init_begin, PAGE_SIZE));
+		WARN_ON(!IS_ALIGNED((unsigned long)lm_init_end, PAGE_SIZE));
+
+		free_reserved_area(lm_init_begin, lm_init_end,
+				   POISON_FREE_INITMEM, "unused kernel");
+		vunmap_range((u64)__init_begin, (u64)__init_end);
+	}
 }
 
 void dump_mem_limit(void)
