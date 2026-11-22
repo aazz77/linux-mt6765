@@ -779,7 +779,7 @@ void vpanic(const char *fmt, va_list args)
 	 * banner loader leaves "---[ end Kernel " in x6/x7; overwrite with
 	 * the first 16 bytes of the actual panic message so ATF's WDT dump
 	 * (saved in expdb) tells us why the kernel died. */
-	if (0 && x606f_forced) {
+	if (x606f_forced) {
 		x606f_panic_w0 = x606f_forced_w0;
 		x606f_panic_w1 = x606f_forced_w1;
 	} else {
