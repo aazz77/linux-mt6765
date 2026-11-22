@@ -51,6 +51,14 @@ CMDLINE = ("bootopt=64S3,32N2,64N2 buildvariant=user "
            "ramoops.record_size=0x1000 ramoops.ftrace_size=0x1000 "
            "ramoops.ecc=0")
 
+# The stock vendor DTB's /chosen has no linux,initrd-start/end properties.
+# Modern arm64 mainline only discovers the LK-loaded ramdisk via those DT
+# properties or the "initrd=" early_param.  Tell the kernel explicitly where
+# LK placed the ramdisk (RAMDISK_ADDR) and how big it is, so populate_rootfs()
+# unpacks our cpio and executes /init instead of panicking "Attempted to kill
+# init!".  Size is filled in from the actual ramdisk bytes at pack time.
+INITRD_CMDLINE_FMT = " initrd=0x{:08x},{}"
+
 
 def align(x, n=PAGE):
     return (x + n - 1) // n * n
@@ -139,7 +147,11 @@ def pack(kernel, dtb=None, ramdisk=None):
     put(44, p32(OS_VERSION))
     name = b"x606f-mainline"[:16]
     put(48, name)
-    cmd = CMDLINE.encode()[:511]
+    # Append "initrd=addr,size" so mainline finds the LK-loaded ramdisk.
+    cmdline = CMDLINE
+    if ramdisk:
+        cmdline += INITRD_CMDLINE_FMT.format(RAMDISK_ADDR, len(ramdisk))
+    cmd = cmdline.encode()[:511]
     put(64, cmd)
 
     # v2 header fields at their standard offsets (the old 1676/1680
