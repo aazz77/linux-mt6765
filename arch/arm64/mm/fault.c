@@ -356,8 +356,9 @@ static void die_kernel_fault(const char *msg, unsigned long addr,
 	show_pte(addr);
 	die("Oops", regs, esr);
 	bust_spinlocks(0);
+	/* x606f: x7 = faulting virtual address (FAR), x6 = PC */
 	if (regs && !current->pid)
-		x606f_set_panic_marker(regs->pc, esr);
+		x606f_set_panic_marker(regs->pc, addr);
 	make_task_dead(SIGKILL);
 }
 
