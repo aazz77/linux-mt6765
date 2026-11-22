@@ -10,10 +10,13 @@ Header parameters are taken from the stock boot.img so that LK accepts it:
   os_version       0x14000149
   header_version   2
 
-The v2 header has a dedicated DTB section (dtb_size/dtb_addr at offset 1676).
-This LK variant reads dtb_kernel_addr from the boot image when present, so
-the mainline DTB travels inside the boot image -- no lk partition flash
-needed for a `fastboot boot` test.
+The v2 header has a dedicated DTB section: header_size @1644 = 1660,
+dtb_size @1648, dtb_addr @1652 (uint64).  MTK LK reads dtb_size to decide
+whether to look for the dt_table (mkdtimg) section after the ramdisk; if
+it is 0, LK prints "can't find v2 dtb", computes kernel real kernel_sz=0
+and gunzip fails in 0 ms.  Stock boot.img has dtb_size=0x18db3 (the full
+dt_table size, 32B header + 32B entry + 101747B FDT) and dtb_addr=
+0x47880000.  We replicate both.
 
 Usage:
   python pack_bootimg.py --kernel Image.gz --dtb mt6765-x606f.dtb -o boot.img
@@ -31,7 +34,7 @@ KERNEL_ADDR = 0x40080000
 RAMDISK_ADDR = 0x51B00000
 SECOND_ADDR = 0x40F00000
 TAGS_ADDR = 0x47880000
-DTB_ADDR = 0x4D800000  # MTK default dtb load address
+DTB_ADDR = 0x47880000  # stock boot.img dtb_addr (same as tags_addr)
 OS_VERSION = 0x14000149
 # Stock kernel segment layout (verified against the original boot.img):
 #   kernel segment = gzip stream (Image, 25.3MB) + FDT appended tightly,
@@ -68,24 +71,32 @@ def parse_info(path):
     print(f"magic={magic} kernel={ks}@{ka:#x} ramdisk={rs}@{ra:#x} "
           f"second={ss}@{sa:#x} tags={ta:#x} page={ps} hdr_ver={hv}")
     if hv >= 1:
-        rds, rdo, hs = struct.unpack_from("<IIQ", d, 1660)  # v1: rdsize rdoff hdrsize
+        rds = struct.unpack_from("<I", d, 1632)[0]
+        rdo = struct.unpack_from("<Q", d, 1636)[0]
+        hs = struct.unpack_from("<I", d, 1644)[0]
+        print(f"  recovery_dtbo={rds}@{rdo:#x} header_size={hs}")
     if hv >= 2:
-        ds, da = struct.unpack_from("<II", d, 1676)
+        ds = struct.unpack_from("<I", d, 1648)[0]
+        da = struct.unpack_from("<Q", d, 1652)[0]
         print(f"  dtb={ds}@{da:#x}")
 
 
 def make_dt_table(fdt, page_size=PAGE):
     """Build an Android DT table (mkdtimg format) wrapping a single FDT.
 
-    Reverse-engineered from the stock boot.img: the LK on this device scans
-    the boot image after the ramdisk for a dt_table section (magic
-    d7b7ab1e).  If it is missing, LK prints "can't find v2 dtb", computes
-    kernel real kernel_sz=0 and the gunzip fails instantly.  The stock
-    header's own dtb_size/dtb_addr fields are 0 -- the section is found by
-    scanning, not by the header fields.
+    Reverse-engineered from the stock boot.img: the LK on this device
+    locates the dt_table section (magic d7b7ab1e) after the ramdisk at
+    align(0x800 + kernel_size) + align(ramdisk_size), gated by the v2
+    header's dtb_size field at offset 1648 (stock: 0x18db3 = this table's
+    full size).  Without both the section and the header field, LK prints
+    "can't find v2 dtb", computes kernel real kernel_sz=0 and gunzip
+    fails in 0 ms.
     """
+    # Every field in the dt_table header and entries is BIG-ENDIAN (verified
+    # against stock bytes: 00 01 8d b3 = BE 0x18db3, 00 00 00 20 = BE 0x20).
+    # Magic is stored LE (d7 b7 ab 1e) as a byte signature.
     DT_TABLE_MAGIC = 0x1EABB7D7  # little-endian bytes d7 b7 ab 1e
-    hdr = struct.pack("<8I", DT_TABLE_MAGIC,
+    hdr = struct.pack("<I", DT_TABLE_MAGIC) + struct.pack(">7I",
                       64 + len(fdt),   # total_size
                       32,              # header_size
                       32,              # entry_size
@@ -93,7 +104,7 @@ def make_dt_table(fdt, page_size=PAGE):
                       32,              # entries_offset
                       page_size,
                       0)               # version
-    entry = struct.pack("<8I", len(fdt), 64, 0, 0, 0, 0, 0, 0)
+    entry = struct.pack(">8I", len(fdt), 64, 0, 0, 0, 0, 0, 0)
     return hdr + entry + fdt
 
 
@@ -102,14 +113,15 @@ def pack(kernel, dtb=None, ramdisk=None):
     - kernel segment = gz stream + FDT appended tightly (stock gz-dtb),
     - ramdisk follows page-aligned,
     - a dt_table (mkdtimg) section wrapping the same FDT follows the
-      ramdisk, page-aligned -- LK finds it by scanning; without it the
-      kernel size computes as 0 and gunzip fails instantly.
+      ramdisk, page-aligned; v2 header dtb_size/dtb_addr describe it
+      (stock dtb_size = full table size, dtb_addr = 0x47880000).
     """
     blob = kernel
     if dtb is not None:
         blob = kernel + dtb
+    table = make_dt_table(dtb) if dtb is not None else None
 
-    hdr = bytearray(1684)  # v2 header size
+    hdr = bytearray(1660)  # standard Android boot image v2 header size
     hdr[0:8] = b"ANDROID!"
 
     def put(off, data):
@@ -130,6 +142,15 @@ def pack(kernel, dtb=None, ramdisk=None):
     cmd = CMDLINE.encode()[:511]
     put(64, cmd)
 
+    # v2 header fields at their standard offsets (the old 1676/1680
+    # write was past the end of the 1660-byte v2 header and never read).
+    if table is not None:
+        put(1632, p32(0))             # recovery_dtbo_size
+        put(1636, struct.pack("<Q", 0))  # recovery_dtbo_offset
+        put(1644, p32(1660))          # header_size
+        put(1648, p32(len(table)))    # dtb_size = full dt_table size
+        put(1652, struct.pack("<Q", DTB_ADDR))
+
     # sha1 over (kernel + ramdisk + second) sizes+contents
     h = hashlib.sha1()
     h.update(p32(len(blob)) + blob)
@@ -143,8 +164,7 @@ def pack(kernel, dtb=None, ramdisk=None):
     out += b"\x00" * (align(len(blob)) - len(blob))
     out += ramdisk
     out += b"\x00" * (align(len(ramdisk)) - len(ramdisk))
-    if dtb is not None:
-        table = make_dt_table(dtb)
+    if table is not None:
         out += table
         out += b"\x00" * (align(len(table)) - len(table))
     return bytes(out)
