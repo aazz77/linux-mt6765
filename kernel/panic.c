@@ -43,10 +43,8 @@
 
 /* x606f bring-up: MTK ATF dumps x0-x30 into expdb on HW_WDT reset.
  * Park the first 16 bytes of the panic reason in x6/x7 so it survives
- * even when pstore/ramoops cannot be read after the reboot.
- * x16/x17 carry the init/userspace breadcrumb set by init/main.c. */
+ * even when pstore/ramoops cannot be read after the reboot. */
 static u64 x606f_panic_w0, x606f_panic_w1;
-extern u64 x606f_user_tag0, x606f_user_tag1;
 
 #define PANIC_TIMER_STEP 100
 #define PANIC_BLINK_SPD 18
@@ -774,11 +772,8 @@ void vpanic(const char *fmt, va_list args)
 		for (j = 0; j < 8 && buf[j + 8]; j++)
 			x606f_panic_w1 |= (u64)(unsigned char)buf[j + 8] << (8 * j);
 	}
-	asm volatile("mov x6, %0\n\tmov x7, %1\n\t"
-		     "mov x16, %2\n\tmov x17, %3"
-		     : : "r"(x606f_panic_w0), "r"(x606f_panic_w1),
-		         "r"(x606f_user_tag0), "r"(x606f_user_tag1)
-		     : "x6", "x7", "x16", "x17");
+	asm volatile("mov x6, %0\n\tmov x7, %1"
+		     : : "r"(x606f_panic_w0), "r"(x606f_panic_w1) : "x6", "x7");
 
 	/* Do not scroll important messages printed above */
 	suppress_printk = 1;
@@ -793,13 +788,11 @@ void vpanic(const char *fmt, va_list args)
 
 	local_irq_enable();
 	for (i = 0; ; i += PANIC_TIMER_STEP) {
-		/* x606f: keep reloading markers in case a callee clobbers
-		 * them before the WDT fires. */
-		asm volatile("mov x6, %0\n\tmov x7, %1\n\t"
-			     "mov x16, %2\n\tmov x17, %3"
-			     : : "r"(x606f_panic_w0), "r"(x606f_panic_w1),
-			         "r"(x606f_user_tag0), "r"(x606f_user_tag1)
-			     : "x6", "x7", "x16", "x17");
+		/* x606f: keep reloading the marker in case a callee clobbers
+		 * x6/x7 before the WDT fires. */
+		asm volatile("mov x6, %0\n\tmov x7, %1"
+			     : : "r"(x606f_panic_w0), "r"(x606f_panic_w1)
+			     : "x6", "x7");
 		touch_softlockup_watchdog();
 		if (i >= i_next) {
 			i += panic_blink(state ^= 1);

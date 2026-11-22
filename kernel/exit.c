@@ -959,9 +959,14 @@ void __noreturn do_exit(long code)
 		 * If the last thread of global init has exited, panic
 		 * immediately to get a useable coredump.
 		 */
-		if (unlikely(is_global_init(tsk)))
-			panic("Attempted to kill init! exitcode=0x%08x\n",
-				tsk->signal->group_exit_code ?: (int)code);
+		if (unlikely(is_global_init(tsk))) {
+			/* x606f: put the exit code FIRST so ATF's WDT dump of
+			 * x6/x7 (which carries the first 16 bytes of the panic
+			 * message) reveals how PID 1 died without pstore. */
+			panic("IDIE e=%08x c=%08x code=%d\n",
+			      tsk->signal->group_exit_code ?: (int)code,
+			      (unsigned int)code, (int)code);
+		}
 
 #ifdef CONFIG_POSIX_TIMERS
 		hrtimer_cancel(&tsk->signal->real_timer);
