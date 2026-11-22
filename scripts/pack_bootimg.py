@@ -45,7 +45,7 @@ OS_VERSION = 0x14000149
 # overlay).  Our own DTB caused an ASSERT at odm_mdtbo.c:285 because LK
 # could not overlay the dtbo partition onto it.
 CMDLINE = ("bootopt=64S3,32N2,64N2 buildvariant=user "
-           "console=ttyS0,921600n8 earlycon ignore_loglevel "
+           "console=ttyS0,921600n8 earlycon ignore_loglevel nokaslr "
            "ramoops.mem_address=0x47c90000 ramoops.mem_size=0xe0000 "
            "ramoops.console_size=0x40000 ramoops.pmsg_size=0x10000 "
            "ramoops.record_size=0x1000 ramoops.ftrace_size=0x1000 "

@@ -46,6 +46,20 @@
  * even when pstore/ramoops cannot be read after the reboot. */
 static u64 x606f_panic_w0, x606f_panic_w1;
 
+/* x606f: allow the oops path to force raw values into the WDT-dumped
+ * registers.  When an idle-task oops kills PID 0 we want the faulting PC
+ * and ESR, not the panic message. */
+static u64 x606f_forced_w0, x606f_forced_w1;
+static bool x606f_forced;
+
+void x606f_set_panic_marker(u64 w0, u64 w1)
+{
+	x606f_forced_w0 = w0;
+	x606f_forced_w1 = w1;
+	x606f_forced = true;
+}
+EXPORT_SYMBOL(x606f_set_panic_marker);
+
 #define PANIC_TIMER_STEP 100
 #define PANIC_BLINK_SPD 18
 #define PANIC_MSG_BUFSZ 1024
@@ -765,8 +779,13 @@ void vpanic(const char *fmt, va_list args)
 	 * banner loader leaves "---[ end Kernel " in x6/x7; overwrite with
 	 * the first 16 bytes of the actual panic message so ATF's WDT dump
 	 * (saved in expdb) tells us why the kernel died. */
-	{
+	if (x606f_forced) {
+		x606f_panic_w0 = x606f_forced_w0;
+		x606f_panic_w1 = x606f_forced_w1;
+	} else {
 		int j;
+		x606f_panic_w0 = 0;
+		x606f_panic_w1 = 0;
 		for (j = 0; j < 8 && buf[j]; j++)
 			x606f_panic_w0 |= (u64)(unsigned char)buf[j] << (8 * j);
 		for (j = 0; j < 8 && buf[j + 8]; j++)

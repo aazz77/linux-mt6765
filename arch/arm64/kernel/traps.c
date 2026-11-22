@@ -30,6 +30,9 @@
 #include <linux/ubsan.h>
 #include <linux/cfi.h>
 
+/* x606f debug: force oops PC/ESR into WDT-dumped x6/x7 */
+extern void x606f_set_panic_marker(u64 w0, u64 w1);
+
 #include <asm/atomic.h>
 #include <asm/bug.h>
 #include <asm/cpufeature.h>
@@ -218,6 +221,11 @@ void die(const char *str, struct pt_regs *regs, long err)
 
 	if (regs && kexec_should_crash(current))
 		crash_kexec(regs);
+
+	/* x606f: if an oops is about to kill the idle task, encode the
+	 * faulting PC and ESR into x6/x7 so ATF's WDT dump can identify it. */
+	if (regs && !current->pid)
+		x606f_set_panic_marker(regs->pc, (u64)err);
 
 	bust_spinlocks(0);
 	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);

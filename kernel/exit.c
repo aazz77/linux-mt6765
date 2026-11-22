@@ -1075,7 +1075,7 @@ void __noreturn make_task_dead(int signr)
 	if (unlikely(in_interrupt()))
 		panic("Aiee, killing interrupt handler!");
 	if (unlikely(!tsk->pid))
-		panic("Attempted to kill the idle task!");
+		panic("X6IDLE! killing idle task");
 
 	if (unlikely(irqs_disabled())) {
 		pr_info("note: %s[%d] exited with irqs disabled\n",
