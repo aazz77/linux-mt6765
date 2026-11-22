@@ -49,12 +49,10 @@ CMDLINE = ("bootopt=64S3,32N2,64N2 buildvariant=user "
            "ramoops.mem_address=0x47c90000 ramoops.mem_size=0xe0000 "
            "ramoops.console_size=0x40000 ramoops.pmsg_size=0x10000 "
            "ramoops.record_size=0x1000 ramoops.ftrace_size=0x1000 "
-           "ramoops.ecc=0 "
-           # WDT FAR = 0xffff000007c80040 == __phys_to_virt(0x47c80040),
-           # the stock mediatek,ram_console region.  Mainline does not
-           # claim that node, so reserve it explicitly to avoid a write to
-           # an unmapped/bogusly-owned page in the idle task.
-           "memmap=0x10000$0x47c80000")
+           "ramoops.ecc=0")
+# NOTE: the old "memmap=0x10000$0x47c80000" is gone: arm64 has NO memmap=
+# early_param handler (only x86/mips/xtensa), so it was silently ignored
+# and never reserved anything.
 
 # We now use an embedded initramfs (CONFIG_INITRAMFS_SOURCE), so the old
 # "initrd=<phys>,<size>" external-ramdisk hack must NOT be passed: it makes

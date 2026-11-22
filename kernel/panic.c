@@ -61,6 +61,17 @@ void x606f_set_panic_marker(u64 w0, u64 w1, u64 w2)
 }
 EXPORT_SYMBOL(x606f_set_panic_marker);
 
+/* x606f: boot-stage breadcrumb written straight into the WDT-dumped
+ * registers.  ATF's aee_wdt_dump shows whatever x6/x7/x18 held when the
+ * watchdog fired, and die()/panic() overwrite them only on a fault, so the
+ * value seen in a dump marks the last boot stage reached when the kernel
+ * hangs without dying.  Stage codes are 0x5354xxxx ("ST" + stage). */
+void x606f_boot_marker(u64 v)
+{
+	asm volatile("mov x6, %0\n\tmov x7, %1\n\tmov x18, %1"
+		     : : "r"(v), "r"(v) : "x6", "x7", "x18");
+}
+
 #define PANIC_TIMER_STEP 100
 #define PANIC_BLINK_SPD 18
 #define PANIC_MSG_BUFSZ 1024

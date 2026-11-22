@@ -970,31 +970,19 @@ static void __init print_kernel_cmdline(const char *cmdline)
 }
 
 /*
- * X606F bring-up: write stage markers into the vendor ram_console buffer
- * (physical 0x47c80000, filled by LK, exported by the stock Android kernel
- * as /proc/last_kmsg).  With no UART and no early pstore, this is the only
- * channel that survives a watchdog reset.  Markers are appended at offset
- * 0x40 (header at 0..0x3f untouched), each 16 bytes wide, dcache-cleaned to
- * PoC so they survive the reset.  Usable only AFTER setup_arch() because
- * phys_to_virt needs the linear map, so there is no marker at start_kernel
- * entry itself.
+ * X606F bring-up: the old xmark() wrote ASCII tags into the vendor
+ * ram_console buffer (physical 0x47c80000) via phys_to_virt().  That
+ * region is a carve-out that LK excludes from the DTB memory node, so it
+ * has NO linear-map PTE: the very first xmark(1) store
+ * faulted with a level-3 translation fault (FAR = __va(0x47c80040)),
+ * die()d and panicked every single boot since it was added.  It is
+ * replaced by x606f_boot_marker(), which parks a stage code in the
+ * x6/x7/x18 registers that ATF's aee_wdt_dump records on watchdog reset.
  */
-static phys_addr_t xmark_off = 0x40;
-static void __init xmark(const char *tag)
+static void __init xmark(unsigned long stage)
 {
-	char *p = phys_to_virt(0x47c80000ULL + xmark_off);
-	int i;
-
-	for (i = 0; i < 15 && tag[i]; i++)
-		p[i] = tag[i];
-	for (; i < 15; i++)
-		p[i] = ' ';
-	p[15] = '\n';
-	/* clean the cache line holding the marker to PoC so it survives the
-	 * watchdog reset.  Use the arm64 asm helper instead of inline asm:
-	 * clang 18 errors out on inline "dc cvac" operands here. */
-	dcache_clean_poc((unsigned long)p, (unsigned long)(p + 64));
-	xmark_off += 16;
+	extern void x606f_boot_marker(u64 v);
+	x606f_boot_marker(0x53540000UL | stage);
 }
 
 asmlinkage __visible __init __no_sanitize_address __noreturn __no_stack_protector
@@ -1003,6 +991,7 @@ void start_kernel(void)
 	char *command_line;
 	char *after_dashes;
 
+	xmark(0);	/* x606f: reached start_kernel at all */
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
 	debug_objects_early_init();
@@ -1021,7 +1010,7 @@ void start_kernel(void)
 	page_address_init();
 	pr_notice("%s", linux_banner);
 	setup_arch(&command_line);
-	xmark("a_setup_arch");
+	xmark(1);
 	mm_core_init_early();
 	/* Static keys and static calls are needed by LSMs */
 	jump_label_init();
@@ -1107,7 +1096,7 @@ void start_kernel(void)
 	/* init some links before init_ISA_irqs() */
 	early_irq_init();
 	init_IRQ();
-	xmark("b_init_IRQ");
+	xmark(2);
 	tick_init();
 	rcu_init_nohz();
 	timers_init();
@@ -1117,7 +1106,7 @@ void start_kernel(void)
 	vdso_setup_data_pages();
 	timekeeping_init();
 	time_init();
-	xmark("c_time_init");
+	xmark(3);
 
 	/* This must be after timekeeping is initialized */
 	random_init();
@@ -1171,7 +1160,7 @@ void start_kernel(void)
 		late_time_init();
 	sched_clock_init();
 	calibrate_delay();
-	xmark("d_calibrate");
+	xmark(4);
 
 	arch_cpu_finalize_init();
 
@@ -1205,7 +1194,7 @@ void start_kernel(void)
 	kcsan_init();
 
 	/* Do the rest non-__init'ed, we're now alive */
-	xmark("e_pre_rest_init");
+	xmark(5);
 	rest_init();
 
 	/*
@@ -1476,7 +1465,7 @@ static void __init do_basic_setup(void)
 	driver_init();
 	init_irq_proc();
 	do_ctors();
-	xmark("f_pre_initcalls");
+	xmark(6);
 	do_initcalls();
 }
 
@@ -1575,6 +1564,7 @@ static int __ref kernel_init(void *unused)
 {
 	int ret;
 
+	xmark(7);	/* x606f: PID 1 is running */
 	/*
 	 * Wait until kthreadd is all set-up.
 	 */
@@ -1651,6 +1641,7 @@ void __init console_on_rootfs(void)
 {
 	struct file *file = filp_open("/dev/console", O_RDWR, 0);
 
+	xmark(8);	/* x606f: console_on_rootfs entered */
 	if (IS_ERR(file)) {
 		pr_err("Warning: unable to open an initial console.\n");
 		return;
