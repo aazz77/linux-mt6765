@@ -95,6 +95,26 @@
 	};
 };
 
+/*
+ * toprgu hardware watchdog (from stock LK base DTB):
+ *   toprgu@10007000 { compatible = "mediatek,mt6765-toprgu";
+ *                     reg = <0 0x10007000 0 0x1000>; interrupts = <0 0x8b 0>; };
+ * LK enables this dog before jumping to the kernel.  Without a matching
+ * driver nobody feeds it, so the board reboots ~every 30s.  The mainline
+ * mtk_wdt driver + watchdog core hrtimer (WDOG_HW_RUNNING) keeps it fed.
+ */
+/ {
+	toprgu: watchdog@10007000 {
+		compatible = "mediatek,mt6765-toprgu";
+		reg = <0 0x10007000 0 0x1000>;
+		/* No interrupt: driver uses platform_get_irq_optional(); with no
+		 * IRQ it takes the non-pretimeout path and watchdog core still
+		 * auto-feeds via WDOG_HW_RUNNING hrtimer.  Avoids GIC-vs-sysirq
+		 * interrupt-parent ambiguity on this MTK SoC. */
+		status = "okay";
+	};
+};
+
 &uart0 {
 	status = "okay";
 };
