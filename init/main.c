@@ -168,6 +168,26 @@ static char *execute_command;
 static char *ramdisk_execute_command = "/init";
 static bool __initdata ramdisk_execute_command_set;
 
+/* x606f bring-up: userspace breadcrumb for ATF WDT dump.  Encoded as 16
+ * ASCII bytes in x6/x7 (same registers panic.c parks its reason in).
+ * panic.c prefers this tag over the panic reason when set. */
+u64 x606f_user_tag0, x606f_user_tag1;
+EXPORT_SYMBOL(x606f_user_tag0);
+EXPORT_SYMBOL(x606f_user_tag1);
+
+static void __init x606f_tag(const char *s)
+{
+	int i;
+	x606f_user_tag0 = x606f_user_tag1 = 0;
+	for (i = 0; i < 8 && s[i]; i++)
+		x606f_user_tag0 |= (u64)(unsigned char)s[i] << (8 * i);
+	for (i = 0; i < 8 && s[i + 8]; i++)
+		x606f_user_tag1 |= (u64)(unsigned char)s[i + 8] << (8 * i);
+	asm volatile("mov x6, %0\n\tmov x7, %1"
+		     : : "r"(x606f_user_tag0), "r"(x606f_user_tag1)
+		     : "x6", "x7");
+}
+
 /*
  * Used to generate warnings if static_key manipulation functions are used
  * before jump_label_init is called.
@@ -1606,9 +1626,11 @@ static int __ref kernel_init(void *unused)
 	do_sysctl_args();
 
 	if (ramdisk_execute_command) {
+		x606f_tag("IN:TRY_INIT!");
 		ret = run_init_process(ramdisk_execute_command);
 		if (!ret)
 			return 0;
+		x606f_tag("IN:INITFAIL!");
 		pr_err("Failed to execute %s (error %d)\n",
 		       ramdisk_execute_command, ret);
 	}
