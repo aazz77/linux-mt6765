@@ -39,6 +39,8 @@ jobs:
         run: |
           mkdir -p out
           cp arch/arm64/boot/Image.gz out/
+          cp System.map out/System.map
+          cp vmlinux out/vmlinux
           cp arch/arm64/boot/dts/mediatek/mt6765-x606f.dtb out/
           # Stock-layout boot image: kernel segment = mainline Image.gz +
           # stock vendor kernel dtb appended (gz-dtb layout that LK accepts);
@@ -62,6 +64,8 @@ jobs:
           name: x606f-mainline-${{ github.run_number }}
           path: |
             out/Image.gz
+            out/System.map
+            out/vmlinux
             out/mt6765-x606f.dtb
             out/boot-mainline.img
             out/lk-mainline.img
