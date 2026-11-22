@@ -225,7 +225,7 @@ void die(const char *str, struct pt_regs *regs, long err)
 	/* x606f: if an oops is about to kill the idle task, encode the
 	 * faulting PC and ESR into x6/x7 so ATF's WDT dump can identify it. */
 	if (regs && !current->pid)
-		x606f_set_panic_marker(regs->pc, (u64)err);
+		x606f_set_panic_marker(regs->pc, 0x5a00000000000000UL | (u64)err);
 
 	bust_spinlocks(0);
 	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
